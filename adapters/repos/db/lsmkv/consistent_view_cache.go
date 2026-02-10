@@ -20,23 +20,23 @@ import (
 )
 
 type ConsistentViewCache interface {
-	Get() *BucketConsistentView
+	Get() BucketConsistentView
 	Invalidate()
 }
 
 // ----------------------------------------------------------------------------
 
 type ConsistentViewCacheNoop struct {
-	createConsistentView func() *BucketConsistentView
+	createConsistentView func() BucketConsistentView
 }
 
-func NewConsistentViewCacheNoop(createConsistentView func() *BucketConsistentView) *ConsistentViewCacheNoop {
+func NewConsistentViewCacheNoop(createConsistentView func() BucketConsistentView) *ConsistentViewCacheNoop {
 	return &ConsistentViewCacheNoop{
 		createConsistentView: createConsistentView,
 	}
 }
 
-func (c *ConsistentViewCacheNoop) Get() *BucketConsistentView {
+func (c *ConsistentViewCacheNoop) Get() BucketConsistentView {
 	return c.createConsistentView()
 }
 
@@ -50,10 +50,10 @@ type ConsistentViewCacheDefault struct {
 	invalidateCh chan struct{}
 
 	logger               logrus.FieldLogger
-	createConsistentView func() *BucketConsistentView
+	createConsistentView func() BucketConsistentView
 }
 
-func NewConsistentViewCache(logger logrus.FieldLogger, createConsistentView func() *BucketConsistentView) *ConsistentViewCacheDefault {
+func NewConsistentViewCache(logger logrus.FieldLogger, createConsistentView func() BucketConsistentView) *ConsistentViewCacheDefault {
 	return &ConsistentViewCacheDefault{
 		lock:                 new(sync.RWMutex),
 		invalidateCh:         make(chan struct{}, 1),
@@ -62,12 +62,12 @@ func NewConsistentViewCache(logger logrus.FieldLogger, createConsistentView func
 	}
 }
 
-func (c *ConsistentViewCacheDefault) Get() *BucketConsistentView {
+func (c *ConsistentViewCacheDefault) Get() BucketConsistentView {
 	select {
 	case <-c.invalidateCh:
 		var prevRefsCount int32
 		var prevRefsView *refsView
-		var view *BucketConsistentView
+		var view BucketConsistentView
 
 		func() {
 			c.lock.Lock()
@@ -163,7 +163,7 @@ func (c *ConsistentViewCacheDefault) newRefsView() *refsView {
 // ----------------------------------------------------------------------------
 
 type refsView struct {
-	view        *BucketConsistentView
+	view        BucketConsistentView
 	origRelease func()
 	refsCounter atomic.Int32
 }
