@@ -273,6 +273,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	b.consistentViewCache = NewConsistentViewCache(b.logger, b.GetConsistentView)
+
 	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                          dir,
@@ -293,6 +295,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			postSegmentsChange:           b.consistentViewCache.Invalidate,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -316,8 +319,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
-
-	b.consistentViewCache = NewConsistentViewCache(b.logger, b.GetConsistentView)
 
 	return b, nil
 }
@@ -1750,6 +1751,8 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtab
 	b.active = mt
 	b.flushing = flushing
 
+	b.consistentViewCache.Invalidate()
+
 	return true, nil
 }
 
@@ -1814,6 +1817,8 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	}
+
+	b.consistentViewCache.Invalidate()
 
 	return nil
 }
