@@ -94,6 +94,8 @@ func TestMapCursorConsistentView(t *testing.T) {
 		disk:     diskSegments,
 		strategy: StrategyMapCollection,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	// Open the cursor that should see key1..key3 only and stay stable
 	cur, err := b.MapCursor()

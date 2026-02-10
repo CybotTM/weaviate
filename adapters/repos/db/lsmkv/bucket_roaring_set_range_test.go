@@ -65,6 +65,8 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 		disk:     diskSegments,
 		strategy: StrategyRoaringSetRange,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	// Open the reader that should see key1..key3 only and stay stable
 	reader1 := b.ReaderRoaringSetRange()
@@ -227,6 +229,8 @@ func TestRoaringSetRangeWritePathRefCount(t *testing.T) {
 		disk:     &SegmentGroup{segments: []Segment{}},
 		active:   newTestMemtableRoaringSetRange(nil),
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	expectedRefs := 0
 	assertWriterRefs := func() {

@@ -1440,6 +1440,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
+	b.consistentViewCache.Invalidate()
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}

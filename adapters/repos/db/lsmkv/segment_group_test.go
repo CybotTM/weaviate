@@ -82,10 +82,11 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		"key2": []byte("value2"),
 	})
 	sg := &SegmentGroup{
-		logger:           logger,
-		strategy:         StrategyReplace,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:             logger,
+		strategy:           StrategyReplace,
+		segments:           []Segment{segA, segB},
+		segmentsWithRefs:   map[string]Segment{},
+		postSegmentsChange: func() {},
 	}
 
 	// control before segment changes
@@ -292,9 +293,10 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 		key2: roaringset.NewBitmap(2),
 	}, sroar.NewBitmap())
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		segmentsWithRefs:   map[string]Segment{},
+		postSegmentsChange: func() {},
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
