@@ -548,6 +548,8 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 		disk:     diskSegments,
 		strategy: StrategyReplace,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	// validate initial data before making any changes
 	value, err := b.Get([]byte("key1"))
@@ -684,6 +686,8 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 		},
 		strategy: StrategyReplace,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	active, freeRefs := b.getActiveMemtableForWrite()
 
@@ -1041,6 +1045,8 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing
 		keepSegmentsInMemory: true,
 		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	// validate initial data before making any changes
 	reader1 := b.ReaderRoaringSetRange()
@@ -1262,6 +1268,8 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 		disk:     diskSegments,
 		strategy: StrategySetCollection,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	// Sanity via Bucket API
 	got, err := b.SetList([]byte("key1"))
@@ -1361,6 +1369,8 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 		},
 		strategy: StrategySetCollection,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	active, freeRefs := b.getActiveMemtableForWrite()
 	err := active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
@@ -1738,6 +1748,8 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 		strategy: StrategyInverted,
 		logger:   logrus.New(),
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	err := validateMapPairListVsBlockMaxSearch(ctx, &b, []kv{
 		{
@@ -1835,6 +1847,8 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 		},
 		strategy: StrategyInverted,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	active, freeRefs := b.getActiveMemtableForWrite()
 	err := active.appendMapSorted([]byte("key1"),

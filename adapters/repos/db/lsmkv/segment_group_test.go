@@ -179,9 +179,10 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 		"key2": bitmapFromSlice([]uint64{2}),
 	})
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		segmentsWithRefs:   map[string]Segment{},
+		postSegmentsChange: func() {},
 	}
 
 	// control: take a consistent view before any switch
@@ -411,9 +412,10 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		segmentsWithRefs:   map[string]Segment{},
+		postSegmentsChange: func() {},
 	}
 
 	// take a consistent view before switch
@@ -529,9 +531,10 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		segmentsWithRefs:   map[string]Segment{},
+		postSegmentsChange: func() {},
 	}
 
 	// take a consistent view before switch
@@ -637,9 +640,10 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	sg := &SegmentGroup{
-		logger:           logger,
-		segments:         []Segment{segA, segB},
-		segmentsWithRefs: map[string]Segment{},
+		logger:             logger,
+		segments:           []Segment{segA, segB},
+		segmentsWithRefs:   map[string]Segment{},
+		postSegmentsChange: func() {},
 	}
 
 	// take a consistent view before switch
