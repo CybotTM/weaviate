@@ -19,74 +19,151 @@ import (
 	"github.com/weaviate/weaviate/entities/errors"
 )
 
-type ConsistentViewCache struct {
-	cached *viewWrapper
-	lock   *sync.RWMutex
-
-	logger     logrus.FieldLogger
-	createView func() *BucketConsistentView
+type ConsistentViewCache interface {
+	Get() *BucketConsistentView
+	Invalidate()
 }
 
-func NewConsistentViewCache(logger logrus.FieldLogger, createView func() *BucketConsistentView) *ConsistentViewCache {
-	return &ConsistentViewCache{
-		lock:       new(sync.RWMutex),
-		logger:     logger,
-		createView: createView,
+// ----------------------------------------------------------------------------
+
+type ConsistentViewCacheNoop struct {
+	createConsistentView func() *BucketConsistentView
+}
+
+func NewConsistentViewCacheNoop(createConsistentView func() *BucketConsistentView) *ConsistentViewCacheNoop {
+	return &ConsistentViewCacheNoop{
+		createConsistentView: createConsistentView,
 	}
 }
 
-func (c *ConsistentViewCache) Get() (view *BucketConsistentView, release func()) {
-	c.lock.RLock()
-	if vw := c.cached; vw != nil {
-		vw.inUseCounter.Add(1)
+func (c *ConsistentViewCacheNoop) Get() *BucketConsistentView {
+	return c.createConsistentView()
+}
+
+func (c *ConsistentViewCacheNoop) Invalidate() {}
+
+// ----------------------------------------------------------------------------
+
+type ConsistentViewCacheDefault struct {
+	cached       *refsView
+	lock         *sync.RWMutex
+	invalidateCh chan struct{}
+
+	logger               logrus.FieldLogger
+	createConsistentView func() *BucketConsistentView
+}
+
+func NewConsistentViewCache(logger logrus.FieldLogger, createConsistentView func() *BucketConsistentView) *ConsistentViewCacheDefault {
+	return &ConsistentViewCacheDefault{
+		lock:                 new(sync.RWMutex),
+		invalidateCh:         make(chan struct{}, 1),
+		logger:               logger,
+		createConsistentView: createConsistentView,
+	}
+}
+
+func (c *ConsistentViewCacheDefault) Get() *BucketConsistentView {
+	select {
+	case <-c.invalidateCh:
+		var prevRefsCount int32
+		var prevRefsView *refsView
+		var view *BucketConsistentView
+
+		func() {
+			c.lock.Lock()
+			defer c.lock.Unlock()
+
+			if prevRefsView = c.cached; prevRefsView != nil {
+				prevRefsCount = prevRefsView.refsCounter.Load()
+			}
+
+			c.cached = c.newRefsView()
+			c.cached.refsCounter.Add(1)
+			view = c.cached.view
+		}()
+
+		if prevRefsCount == 0 && prevRefsView != nil {
+			errors.GoWrapper(prevRefsView.origRelease, c.logger)
+		}
+		return view
+
+	default:
+		c.lock.RLock()
+		if refsView := c.cached; refsView != nil {
+			defer c.lock.RUnlock()
+			refsView.refsCounter.Add(1)
+			return refsView.view
+		}
 		c.lock.RUnlock()
-		return vw.view, c.makeRelease(vw)
-	}
-	c.lock.RUnlock()
 
-	vw := func() *viewWrapper {
 		c.lock.Lock()
 		defer c.lock.Unlock()
-
 		if c.cached == nil {
-			c.cached = &viewWrapper{view: c.createView()}
+			c.cached = c.newRefsView()
 		}
-		return c.cached
-	}()
-	return vw.view, c.makeRelease(vw)
-}
-
-func (c *ConsistentViewCache) Invalidate() {
-	var inUseCount int32
-	var vw *viewWrapper
-
-	c.lock.Lock()
-	if vw = c.cached; vw != nil {
-		inUseCount = vw.inUseCounter.Load()
-		c.cached = nil
-	}
-	c.lock.Unlock()
-
-	if inUseCount == 0 && vw != nil {
-		errors.GoWrapper(vw.view.release, c.logger)
+		c.cached.refsCounter.Add(1)
+		return c.cached.view
 	}
 }
 
-func (c *ConsistentViewCache) makeRelease(vw *viewWrapper) func() {
-	// TODO aliszka:viewcache disable multiple releases not to mess with inusecounter
-	return func() {
+// invalidate asynchronously either here or in Get call (whatever comes first)
+func (c *ConsistentViewCacheDefault) Invalidate() {
+	select {
+	case c.invalidateCh <- struct{}{}:
+	default:
+		// nothing to do, already marked
+		return
+	}
+
+	errors.GoWrapper(func() {
+		select {
+		case <-c.invalidateCh:
+		default:
+			// nothing to do, already processed
+			return
+		}
+
+		var refsCount int32
+		var refsView *refsView
+
+		c.lock.Lock()
+		if refsView = c.cached; refsView != nil {
+			refsCount = refsView.refsCounter.Load()
+			c.cached = nil
+		}
+		c.lock.Unlock()
+
+		if refsCount == 0 && refsView != nil {
+			refsView.origRelease()
+		}
+	}, c.logger)
+}
+
+func (c *ConsistentViewCacheDefault) newRefsView() *refsView {
+	consistentView := c.createConsistentView()
+	refsView := &refsView{
+		view:        consistentView,
+		origRelease: consistentView.ReleaseView,
+	}
+
+	// TODO aliszka:cachedview ensure release callable once
+	consistentView.release = func() {
 		c.lock.RLock()
-		inUseCount := vw.inUseCounter.Add(-1)
-		isCached := vw == c.cached
+		refsCount := refsView.refsCounter.Add(-1)
+		isCached := refsView == c.cached
 		c.lock.RUnlock()
 
-		if inUseCount == 0 && !isCached {
-			errors.GoWrapper(vw.view.release, c.logger)
+		if refsCount == 0 && !isCached {
+			refsView.origRelease()
 		}
 	}
+	return refsView
 }
 
-type viewWrapper struct {
-	view         *BucketConsistentView
-	inUseCounter atomic.Int32
+// ----------------------------------------------------------------------------
+
+type refsView struct {
+	view        *BucketConsistentView
+	origRelease func()
+	refsCounter atomic.Int32
 }
