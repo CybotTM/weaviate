@@ -43,9 +43,9 @@ func (c *ConsistentViewCacheNoop) Invalidate() {}
 // ----------------------------------------------------------------------------
 
 type ConsistentViewCacheDefault struct {
-	cached       *refsView
-	lock         *sync.RWMutex
-	invalidateCh chan struct{}
+	cached  *refsView
+	lock    *sync.RWMutex
+	invalid *atomic.Bool
 
 	logger               logrus.FieldLogger
 	createConsistentView func() BucketConsistentView
@@ -54,38 +54,14 @@ type ConsistentViewCacheDefault struct {
 func NewConsistentViewCache(logger logrus.FieldLogger, createConsistentView func() BucketConsistentView) *ConsistentViewCacheDefault {
 	return &ConsistentViewCacheDefault{
 		lock:                 new(sync.RWMutex),
-		invalidateCh:         make(chan struct{}, 1),
+		invalid:              new(atomic.Bool),
 		logger:               logger,
 		createConsistentView: createConsistentView,
 	}
 }
 
 func (c *ConsistentViewCacheDefault) Get() BucketConsistentView {
-	select {
-	case <-c.invalidateCh:
-		var prevRefsCount int32
-		var prevRefsView *refsView
-		var view BucketConsistentView
-
-		func() {
-			c.lock.Lock()
-			defer c.lock.Unlock()
-
-			if prevRefsView = c.cached; prevRefsView != nil {
-				prevRefsCount = prevRefsView.refsCounter.Load()
-			}
-
-			c.cached = c.newRefsView()
-			c.cached.refsCounter.Add(1)
-			view = *c.cached.view
-		}()
-
-		if prevRefsCount == 0 && prevRefsView != nil {
-			errors.GoWrapper(prevRefsView.origRelease, c.logger)
-		}
-		return view
-
-	default:
+	if !c.invalid.Load() {
 		c.lock.RLock()
 		if refsView := c.cached; refsView != nil {
 			defer c.lock.RUnlock()
@@ -102,31 +78,55 @@ func (c *ConsistentViewCacheDefault) Get() BucketConsistentView {
 		c.cached.refsCounter.Add(1)
 		return *c.cached.view
 	}
+
+	var prevRefsCount int32
+	var prevRefsView *refsView
+	var view BucketConsistentView
+
+	func() {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		// still invalid, unset and handle
+		if c.invalid.CompareAndSwap(true, false) {
+			if prevRefsView = c.cached; prevRefsView != nil {
+				prevRefsCount = prevRefsView.refsCounter.Load()
+			}
+			c.cached = nil
+		}
+		if c.cached == nil {
+			c.cached = c.newRefsView()
+		}
+		c.cached.refsCounter.Add(1)
+		view = *c.cached.view
+	}()
+
+	if prevRefsCount == 0 && prevRefsView != nil {
+		errors.GoWrapper(prevRefsView.origRelease, c.logger)
+	}
+	return view
 }
 
 // invalidate asynchronously either here or in Get call (whatever comes first)
 func (c *ConsistentViewCacheDefault) Invalidate() {
-	select {
-	case c.invalidateCh <- struct{}{}:
-	default:
-		// nothing to do, already marked
-		return
-	}
+	c.invalid.Store(true)
 
 	errors.GoWrapper(func() {
-		select {
-		case <-c.invalidateCh:
-		default:
+		if !c.invalid.Load() {
 			// nothing to do, already processed
 			return
 		}
+
 		var refsCount int32
 		var refsView *refsView
 
 		c.lock.Lock()
-		if refsView = c.cached; refsView != nil {
-			refsCount = refsView.refsCounter.Load()
-			c.cached = nil
+		// still invalid, unset and handle
+		if c.invalid.CompareAndSwap(true, false) {
+			if refsView = c.cached; refsView != nil {
+				refsCount = refsView.refsCounter.Load()
+				c.cached = nil
+			}
 		}
 		c.lock.Unlock()
 
